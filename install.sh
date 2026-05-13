@@ -249,6 +249,8 @@ install_pihole_web() {
     local pihole_dir="/opt/pihole"
     local admin_dest="/var/www/html/admin"
     local admin_src=""
+    local fallback_web_dir=""
+    local tmp_web_root=""
     local src_candidates=(
         "$pihole_dir/AdminLTE"
         "$pihole_dir/webpage"
@@ -279,7 +281,32 @@ install_pihole_web() {
     fi
 
     if [[ -z "$admin_src" ]]; then
-        log_error "Pi-hole web assets not found in /opt/pihole after submodule initialization"
+        log_warn "Web assets still not found, fetching Pi-hole web repository..."
+
+        tmp_web_root=$(mktemp -d /tmp/pihole-web.XXXXXX)
+
+        if git clone --depth 1 https://github.com/pi-hole/web.git "$tmp_web_root" >/dev/null 2>&1; then
+            local found_dir=""
+
+            while IFS= read -r path; do
+                found_dir=$(dirname "$path")
+                break
+            done < <(find "$tmp_web_root" -maxdepth 4 -type f \( -name "index.php" -o -name "index.html" \) 2>/dev/null)
+
+            if [[ -n "$found_dir" ]]; then
+                fallback_web_dir="$found_dir"
+                admin_src="$fallback_web_dir"
+            fi
+        fi
+
+        if [[ -z "$admin_src" ]]; then
+            rm -rf "$tmp_web_root"
+            tmp_web_root=""
+        fi
+    fi
+
+    if [[ -z "$admin_src" ]]; then
+        log_error "Pi-hole web assets not found after submodule initialization and web repo fallback"
         log_error "Checked locations: AdminLTE, webpage, web, web/admin, web/public"
         exit 1
     fi
@@ -290,6 +317,10 @@ install_pihole_web() {
         log_error "Failed to copy web interface files from $admin_src"
         exit 1
     }
+
+    if [[ -n "$tmp_web_root" ]]; then
+        rm -rf "$tmp_web_root"
+    fi
 
     chown -R www-data:www-data "$admin_dest"
     chmod -R 755 "$admin_dest"
