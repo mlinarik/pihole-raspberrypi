@@ -219,15 +219,6 @@ configure_lighttpd() {
     # Create Pi-hole lighttpd config
     cat > /etc/lighttpd/conf-available/15-pihole-admin.conf <<'EOF'
 # Pi-hole admin dashboard configuration
-fastcgi.server = (
-    ".php" => (
-        "localhost" => (
-            "socket" => "/run/php/php-cgi.sock",
-            "bin-path" => "/usr/bin/php-cgi",
-        )
-    )
-)
-
 url.rewrite-if-not-file = (
     "^/admin/api(/.*)$" => "/admin/api.php$1"
 )
@@ -239,6 +230,13 @@ EOF
 
     # Ensure the custom config is enabled
     ln -sf /etc/lighttpd/conf-available/15-pihole-admin.conf /etc/lighttpd/conf-enabled/15-pihole-admin.conf
+
+    # Validate Lighttpd configuration early so we don't fail later when starting services
+    if ! lighttpd -tt -f /etc/lighttpd/lighttpd.conf >/dev/null 2>&1; then
+        log_error "Lighttpd configuration test failed"
+        log_error "Check: lighttpd -tt -f /etc/lighttpd/lighttpd.conf"
+        exit 1
+    fi
     
     log_success "Lighttpd configured"
 }
@@ -382,7 +380,12 @@ enable_services() {
     
     # Start/restart services
     systemctl restart dnsmasq || log_warn "Failed to restart dnsmasq"
-    systemctl restart lighttpd || log_warn "Failed to restart lighttpd"
+    if ! systemctl restart lighttpd; then
+        log_warn "Failed to restart lighttpd"
+        if ! lighttpd -tt -f /etc/lighttpd/lighttpd.conf >/dev/null 2>&1; then
+            log_warn "Lighttpd config test failed. Run: lighttpd -tt -f /etc/lighttpd/lighttpd.conf"
+        fi
+    fi
     
     log_success "Services enabled and started"
 }
