@@ -103,6 +103,7 @@ install_dependencies() {
         "git"
         "python3"
         "python3-pip"
+        "dnsutils"
         "dnsmasq"
         "lighttpd"
         "php-cgi"
@@ -211,17 +212,13 @@ configure_lighttpd() {
     log_info "Configuring Lighttpd..."
     
     # Enable necessary modules
+    lighty-enable-mod fastcgi 2>/dev/null || true
     lighty-enable-mod fastcgi-php 2>/dev/null || true
+    lighty-enable-mod rewrite 2>/dev/null || true
     
     # Create Pi-hole lighttpd config
     cat > /etc/lighttpd/conf-available/15-pihole-admin.conf <<'EOF'
 # Pi-hole admin dashboard configuration
-server.modules = (
-    "mod_cgi",
-    "mod_fastcgi",
-    "mod_rewrite",
-)
-
 fastcgi.server = (
     ".php" => (
         "localhost" => (
@@ -234,7 +231,14 @@ fastcgi.server = (
 url.rewrite-if-not-file = (
     "^/admin/api(/.*)$" => "/admin/api.php$1"
 )
+
+url.redirect = (
+    "^/admin$" => "/admin/"
+)
 EOF
+
+    # Ensure the custom config is enabled
+    ln -sf /etc/lighttpd/conf-available/15-pihole-admin.conf /etc/lighttpd/conf-enabled/15-pihole-admin.conf
     
     log_success "Lighttpd configured"
 }
@@ -243,14 +247,35 @@ install_pihole_web() {
     log_info "Installing Pi-hole web interface..."
     
     local pihole_dir="/opt/pihole"
-    local admin_src="$pihole_dir/AdminLTE"
     local admin_dest="/var/www/html/admin"
-    
-    if [[ -d "$admin_src" ]]; then
-        cp -r "$admin_src"/* "$admin_dest/" 2>/dev/null || true
-        chown -R www-data:www-data "$admin_dest"
-        chmod -R 755 "$admin_dest"
+    local admin_src=""
+    local src_candidates=(
+        "$pihole_dir/AdminLTE"
+        "$pihole_dir/webpage"
+        "$pihole_dir/web"
+    )
+
+    for candidate in "${src_candidates[@]}"; do
+        if [[ -f "$candidate/index.php" || -f "$candidate/index.html" ]]; then
+            admin_src="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$admin_src" ]]; then
+        log_error "Pi-hole web assets not found in /opt/pihole (checked: AdminLTE, webpage, web)"
+        exit 1
     fi
+    
+    mkdir -p "$admin_dest"
+    rm -rf "$admin_dest"/*
+    cp -a "$admin_src"/. "$admin_dest" || {
+        log_error "Failed to copy web interface files from $admin_src"
+        exit 1
+    }
+
+    chown -R www-data:www-data "$admin_dest"
+    chmod -R 755 "$admin_dest"
     
     log_success "Web interface installed"
 }
@@ -393,10 +418,31 @@ verify_installation() {
     log_info "Verifying installation..."
     
     local errors=0
+
+    dns_query_works() {
+        if command -v dig >/dev/null 2>&1; then
+            dig +short @127.0.0.1 google.com | grep -q "^[0-9]"
+            return $?
+        fi
+
+        if command -v nslookup >/dev/null 2>&1; then
+            nslookup google.com 127.0.0.1 >/dev/null 2>&1
+            return $?
+        fi
+
+        if command -v host >/dev/null 2>&1; then
+            host google.com 127.0.0.1 >/dev/null 2>&1
+            return $?
+        fi
+
+        return 2
+    }
     
     # Check if DNS is responding
-    if dig +short @127.0.0.1 google.com | grep -q "^[0-9]"; then
+    if dns_query_works; then
         log_success "DNS resolution working"
+    elif [[ $? -eq 2 ]]; then
+        log_warn "No DNS query tool found (dig/nslookup/host); skipping DNS resolution check"
     else
         log_warn "DNS resolution not responding yet (this may be normal during startup)"
         ((errors++))

@@ -218,7 +218,7 @@ check_web_interface() {
     fi
     
     # Test HTTP connectivity
-    if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/admin/ | grep -q "200\|403"; then
+    if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/admin/ | grep -q "200\|301\|302"; then
         status_ok "Web interface responding"
     else
         status_warn "Web interface not responding properly"
