@@ -260,7 +260,7 @@ install_pihole_web() {
     )
 
     for candidate in "${src_candidates[@]}"; do
-        if [[ -f "$candidate/index.php" || -f "$candidate/index.html" ]]; then
+        if [[ -f "$candidate/index.php" || -f "$candidate/index.html" || -f "$candidate/index.lp" ]]; then
             admin_src="$candidate"
             break
         fi
@@ -273,7 +273,7 @@ install_pihole_web() {
         fi
 
         for candidate in "${src_candidates[@]}"; do
-            if [[ -f "$candidate/index.php" || -f "$candidate/index.html" ]]; then
+            if [[ -f "$candidate/index.php" || -f "$candidate/index.html" || -f "$candidate/index.lp" ]]; then
                 admin_src="$candidate"
                 break
             fi
@@ -286,17 +286,8 @@ install_pihole_web() {
         tmp_web_root=$(mktemp -d /tmp/pihole-web.XXXXXX)
 
         if git clone --depth 1 https://github.com/pi-hole/web.git "$tmp_web_root" >/dev/null 2>&1; then
-            local found_dir=""
-
-            while IFS= read -r path; do
-                found_dir=$(dirname "$path")
-                break
-            done < <(find "$tmp_web_root" -maxdepth 4 -type f \( -name "index.php" -o -name "index.html" \) 2>/dev/null)
-
-            if [[ -n "$found_dir" ]]; then
-                fallback_web_dir="$found_dir"
-                admin_src="$fallback_web_dir"
-            fi
+            fallback_web_dir="$tmp_web_root"
+            admin_src="$fallback_web_dir"
         fi
 
         if [[ -z "$admin_src" ]]; then
