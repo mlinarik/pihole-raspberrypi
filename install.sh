@@ -145,7 +145,7 @@ clone_pihole_repo() {
     fi
     
     log_info "Cloning Pi-hole repository..."
-    git clone --depth 1 https://github.com/pi-hole/pi-hole.git "$pihole_dir" || {
+    git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/pi-hole/pi-hole.git "$pihole_dir" || {
         log_error "Failed to clone Pi-hole repository"
         exit 1
     }
@@ -253,6 +253,8 @@ install_pihole_web() {
         "$pihole_dir/AdminLTE"
         "$pihole_dir/webpage"
         "$pihole_dir/web"
+        "$pihole_dir/web/admin"
+        "$pihole_dir/web/public"
     )
 
     for candidate in "${src_candidates[@]}"; do
@@ -263,7 +265,22 @@ install_pihole_web() {
     done
 
     if [[ -z "$admin_src" ]]; then
-        log_error "Pi-hole web assets not found in /opt/pihole (checked: AdminLTE, webpage, web)"
+        log_warn "Web assets not found in initial clone, attempting to initialize submodules..."
+        if [[ -d "$pihole_dir/.git" ]]; then
+            git -C "$pihole_dir" submodule update --init --recursive --depth 1 >/dev/null 2>&1 || true
+        fi
+
+        for candidate in "${src_candidates[@]}"; do
+            if [[ -f "$candidate/index.php" || -f "$candidate/index.html" ]]; then
+                admin_src="$candidate"
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$admin_src" ]]; then
+        log_error "Pi-hole web assets not found in /opt/pihole after submodule initialization"
+        log_error "Checked locations: AdminLTE, webpage, web, web/admin, web/public"
         exit 1
     fi
     
